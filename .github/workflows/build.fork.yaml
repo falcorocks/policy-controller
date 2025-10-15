@@ -1,0 +1,43 @@
+name: Build & Push (ko → GHCR)
+
+on:
+  push:
+    branches: [ fork ]
+
+permissions:
+  contents: read
+  packages: write
+  attestations: write
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      - name: Install ko
+        uses: imjasonh/setup-ko@v0.6
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & publish via Makefile (ko)
+        env:
+          KO_PREFIX: ${{ env.REGISTRY }}/${{ github.repository_owner }}
+          POLICY_CONTROLLER_ARCHS: linux/amd64,linux/arm64
+          GIT_VERSION: ${{ github.ref_name }}
+          GIT_HASH: ${{ github.sha }}
+        run: make ko-policy-controller
