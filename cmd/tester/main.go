@@ -17,6 +17,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -85,6 +86,40 @@ func setSugaredLogger(logLevel LogLevel) (*zap.SugaredLogger, error) {
 		return nil, fmt.Errorf("failed to build logger: %w", err)
 	}
 	return logger.Sugar(), nil
+}
+
+// decodeBase64IfNeeded checks if the bytes are valid JSON. If not, it tries to
+// decode them as base64 and then validate as JSON. This is needed because
+// sigs.k8s.io/yaml doesn't automatically decode base64 strings for []byte
+// fields like Kubernetes does. It also trims whitespace which might cause issues.
+func decodeBase64IfNeeded(data []byte) ([]byte, error) {
+	// Trim whitespace first
+	trimmed := []byte(strings.TrimSpace(string(data)))
+
+	// First, try to parse as JSON directly
+	var test map[string]interface{}
+	if err := json.Unmarshal(trimmed, &test); err == nil {
+		// Already valid JSON, return trimmed version
+		return trimmed, nil
+	}
+
+	// JSON parsing failed - this might mean it's base64 encoded
+	// Try decoding as base64
+	decoded, err := base64.StdEncoding.DecodeString(string(trimmed))
+	if err != nil {
+		// Not base64 either, return the original error from JSON parsing
+		return nil, fmt.Errorf("not valid JSON and not base64: JSON error: %v, base64 error: %w", json.Unmarshal(trimmed, &test), err)
+	}
+
+	// Trim whitespace from decoded bytes too
+	decoded = []byte(strings.TrimSpace(string(decoded)))
+
+	// Validate that the decoded bytes are valid JSON
+	if err := json.Unmarshal(decoded, &test); err != nil {
+		return nil, fmt.Errorf("decoded bytes are not valid JSON: %w", err)
+	}
+
+	return decoded, nil
 }
 
 func main() {
@@ -208,6 +243,33 @@ func main() {
 		tr := &v1alpha1.TrustRoot{}
 		if err := yaml.Unmarshal(raw, tr); err != nil {
 			log.Fatal(err)
+		}
+
+		// sigs.k8s.io/yaml doesn't automatically decode base64 strings for []byte fields
+		// like Kubernetes does, so we need to decode manually if needed
+		if tr.Spec.Remote != nil && tr.Spec.Remote.Root != nil {
+			previewLen := 100
+			if len(tr.Spec.Remote.Root) < previewLen {
+				previewLen = len(tr.Spec.Remote.Root)
+			}
+			logging.FromContext(ctx).Debugf("Root field length: %d, first %d bytes: %q", len(tr.Spec.Remote.Root), previewLen, string(tr.Spec.Remote.Root[:previewLen]))
+			decoded, err := decodeBase64IfNeeded(tr.Spec.Remote.Root)
+			if err != nil {
+				logging.FromContext(ctx).Debugf("Failed to decode base64: %v", err)
+				// Try to validate JSON to see what the actual error is
+				var test map[string]interface{}
+				if jsonErr := json.Unmarshal(tr.Spec.Remote.Root, &test); jsonErr != nil {
+					logging.FromContext(ctx).Debugf("JSON validation error: %v", jsonErr)
+				}
+			} else {
+				logging.FromContext(ctx).Debugf("Successfully processed root, length: %d", len(decoded))
+				tr.Spec.Remote.Root = decoded
+			}
+		}
+		if tr.Spec.Repository != nil && tr.Spec.Repository.Root != nil {
+			if decoded, err := decodeBase64IfNeeded(tr.Spec.Repository.Root); err == nil {
+				tr.Spec.Repository.Root = decoded
+			}
 		}
 
 		keys, err := GetKeysFromTrustRoot(ctx, tr)

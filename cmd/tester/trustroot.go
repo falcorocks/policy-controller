@@ -33,14 +33,21 @@ func GetKeysFromTrustRoot(ctx context.Context, tr *v1alpha1.TrustRoot) (*config.
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize TUF client from remote: %w", err)
 		}
-		return trustroot.GetSigstoreKeysFromTuf(ctx, client, "")
+		trustedRootTarget := "trusted_root.json"
+		if tr.Spec.Remote.TrustedRootTarget != "" {
+			trustedRootTarget = tr.Spec.Remote.TrustedRootTarget
+		}
+		return trustroot.GetSigstoreKeysFromTuf(ctx, client, trustedRootTarget)
 	case tr.Spec.Repository != nil:
 		client, err := tuf.ClientFromSerializedMirror(context.Background(), tr.Spec.Repository.MirrorFS, tr.Spec.Repository.Root, tr.Spec.Repository.Targets, v1alpha1.DefaultTUFRepoPrefix)
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize TUF client from remote: %w", err)
 		}
-
-		return trustroot.GetSigstoreKeysFromTuf(ctx, client, "")
+		trustedRootTarget := "trusted_root.json"
+		if tr.Spec.Repository.TrustedRootTarget != "" {
+			trustedRootTarget = tr.Spec.Repository.TrustedRootTarget
+		}
+		return trustroot.GetSigstoreKeysFromTuf(ctx, client, trustedRootTarget)
 	case tr.Spec.SigstoreKeys != nil:
 		return config.ConvertSigstoreKeys(context.Background(), tr.Spec.SigstoreKeys)
 	}
