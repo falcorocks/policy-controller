@@ -48,14 +48,8 @@ jobs:
 
       - uses: chainguard-dev/actions/goimports@eba358c567c5b091e34187d905258baebdd2a4ec # v1.5.16
 
-      - name: Set up Cloud SDK
-        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
-        with:
-          workload_identity_provider: 'projects/498091336538/locations/global/workloadIdentityPools/githubactions/providers/sigstore-policy-controller'
-          service_account: 'gha-policy-controller@projectsigstore.iam.gserviceaccount.com'
-
-      - name: creds
-        run: gcloud auth configure-docker --quiet
+      - name: Login to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
       - name: policy-controller
-        run: COSIGN_YES="true" KO_PREFIX=ghcr.io/sigstore/policy-controller/policy-controller/ci make build-sign-containers
+        run: COSIGN_YES="true" KO_PREFIX=ghcr.io/falcorocks/policy-controller make build-sign-containers
